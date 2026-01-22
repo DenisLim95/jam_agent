@@ -18,16 +18,8 @@ class DrumMachine:
     def __init__(self, samples_dir: str = "samples"):
         self.samples_dir = Path(samples_dir)
         self.samples = {}
-        self.pattern = {
-            "kick": [],
-            "snare": [],
-            "hihat": [],
-        }
-        self.volume = {
-            "kick": 100,
-            "snare": 100,
-            "hihat": 80,
-        }
+        self.pattern = {}
+        self.volume = {}
         self.tempo = 90
         self.playing = False
         self._stream = None
@@ -40,33 +32,46 @@ class DrumMachine:
         self._rebuild_loop()
 
     def _load_samples(self):
-        """Load wav samples from disk."""
-        for name in ["kick", "snare", "hihat"]:
-            path = self.samples_dir / f"{name}.wav"
-            if path.exists():
-                data, sr = sf.read(str(path))
-                # Convert to mono if stereo
-                if len(data.shape) > 1:
-                    data = data.mean(axis=1)
-                # Resample if needed
-                if sr != SAMPLE_RATE:
-                    ratio = SAMPLE_RATE / sr
-                    new_length = int(len(data) * ratio)
-                    data = np.interp(
-                        np.linspace(0, len(data), new_length),
-                        np.arange(len(data)),
-                        data
-                    )
-                self.samples[name] = data.astype(np.float32)
-                print(f"Loaded {name}")
-            else:
-                print(f"Warning: {path} not found")
+        """Load all wav samples from the samples directory."""
+        if not self.samples_dir.exists():
+            print(f"Warning: samples directory '{self.samples_dir}' not found")
+            return
+
+        wav_files = list(self.samples_dir.glob("*.wav"))
+        if not wav_files:
+            print(f"Warning: no .wav files found in '{self.samples_dir}'")
+            return
+
+        for path in sorted(wav_files):
+            name = path.stem  # filename without extension
+            data, sr = sf.read(str(path))
+            # Convert to mono if stereo
+            if len(data.shape) > 1:
+                data = data.mean(axis=1)
+            # Resample if needed
+            if sr != SAMPLE_RATE:
+                ratio = SAMPLE_RATE / sr
+                new_length = int(len(data) * ratio)
+                data = np.interp(
+                    np.linspace(0, len(data), new_length),
+                    np.arange(len(data)),
+                    data
+                )
+            self.samples[name] = data.astype(np.float32)
+            self.pattern[name] = []
+            self.volume[name] = 100
+            print(f"Loaded {name}")
 
     def _set_default_pattern(self):
-        """Set a basic starting pattern."""
-        self.pattern["kick"] = [1, 9]
-        self.pattern["snare"] = [5, 13]
-        self.pattern["hihat"] = [1, 3, 5, 7, 9, 11, 13, 15]
+        """Set a basic starting pattern for common instruments if present."""
+        defaults = {
+            "kick": [1, 9],
+            "snare": [5, 13],
+            "hihat": [1, 3, 5, 7, 9, 11, 13, 15],
+        }
+        for instrument, steps in defaults.items():
+            if instrument in self.samples:
+                self.pattern[instrument] = steps
 
     def _step_samples(self) -> int:
         """Number of audio samples per step (16th note)."""
@@ -162,10 +167,20 @@ class DrumMachine:
         self.playing = False
         print("Stopped")
 
+    def list_instruments(self):
+        """List all available instruments."""
+        if not self.samples:
+            print("No instruments loaded")
+            return
+        print("Available instruments:")
+        for name in sorted(self.samples.keys()):
+            print(f"  {name}")
+
     def set_pattern(self, instrument: str, steps: list[int]):
         """Set pattern for an instrument."""
-        if instrument not in self.pattern:
+        if instrument not in self.samples:
             print(f"Unknown instrument: {instrument}")
+            print(f"Available: {', '.join(sorted(self.samples.keys()))}")
             return
         valid_steps = [s for s in steps if 1 <= s <= STEPS]
         self.pattern[instrument] = valid_steps
@@ -188,8 +203,9 @@ class DrumMachine:
 
     def set_volume(self, instrument: str, level: int):
         """Set volume for an instrument (0-100)."""
-        if instrument not in self.volume:
+        if instrument not in self.samples:
             print(f"Unknown instrument: {instrument}")
+            print(f"Available: {', '.join(sorted(self.samples.keys()))}")
             return
         self.volume[instrument] = max(0, min(100, level))
         self._rebuild_loop()
@@ -217,9 +233,10 @@ class DrumMachine:
         print("-" * 40)
 
 
-def print_help():
+def print_help(dm: DrumMachine = None):
     """Print available commands."""
-    print("""
+    instruments = ", ".join(sorted(dm.samples.keys())) if dm and dm.samples else "(none loaded)"
+    print(f"""
 Commands:
   play                    Start playback
   stop                    Stop playback
@@ -228,10 +245,11 @@ Commands:
   volume <inst> <0-100>   Set volume (e.g., volume snare 80)
   tempo <bpm>             Set tempo (e.g., tempo 120)
   show                    Display current pattern
+  list                    List available instruments
   help                    Show this help
   quit                    Exit
 
-Instruments: kick, snare, hihat
+Instruments: {instruments}
 Steps: 1-16 (16th notes in one bar)
 """)
 
@@ -274,8 +292,10 @@ def parse_command(dm: DrumMachine, cmd: str):
             print("Invalid tempo value")
     elif command == "show":
         dm.show()
+    elif command == "list":
+        dm.list_instruments()
     elif command == "help":
-        print_help()
+        print_help(dm)
     else:
         print(f"Unknown command: {cmd}. Type 'help' for commands.")
 
