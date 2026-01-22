@@ -4,6 +4,8 @@ Drum Loop Agent - A text-controlled drum machine
 """
 from __future__ import annotations
 
+import shlex
+
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
@@ -241,6 +243,7 @@ Commands:
   play                    Start playback
   stop                    Stop playback
   set <inst> <steps...>   Set pattern (e.g., set kick 1 5 9 13)
+                          Use quotes for names with spaces: set "art 808" 1 5 9
   clear <inst|all>        Clear pattern
   volume <inst> <0-100>   Set volume (e.g., volume snare 80)
   tempo <bpm>             Set tempo (e.g., tempo 120)
@@ -256,7 +259,11 @@ Steps: 1-16 (16th notes in one bar)
 
 def parse_command(dm: DrumMachine, cmd: str):
     """Parse and execute a command."""
-    parts = cmd.strip().lower().split()
+    try:
+        parts = shlex.split(cmd.strip().lower())
+    except ValueError:
+        print("Invalid command syntax (check quotes)")
+        return True
     if not parts:
         return True
 
